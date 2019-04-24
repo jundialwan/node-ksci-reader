@@ -1,4 +1,3 @@
-// @ts-check
 const Command = require('../Command')
 const MF = require('../MF')
 const DF = require('../DF')
@@ -33,29 +32,23 @@ const SCDataExistenceAndLength = {
 }
 const SCDataKeys = Object.keys(SCDataExistenceAndLength)
 
-const AccessFieldLengthMapEF = async (reader, protocol) => await APDUTransmit(reader, protocol, [Command.DIR.EF.FIELD_LENGTH_MAP])
+const AccessFieldLengthMapEF = async (reader) => await APDUTransmit(reader, [Command.DIR.EF.FIELD_LENGTH_MAP])
 
-async function ResetFieldLengthMap(reader, protocol) {
-  const accessMF = await MF(reader, protocol)
-  const accessDF = await DF(reader, protocol)
+async function ResetFieldLengthMap(reader) {
+  await MF(reader)
+  await DF(reader)
+  await AccessFieldLengthMapEF(reader)
 
-  const defaultValue = ('0').repeat(102)
-  const accessFieldLengthMapEF = await AccessFieldLengthMapEF(reader, protocol)
-  const resetFieldLengthMap = await APDUTransmit(reader, protocol, Command.WRITE_DATA(51, defaultValue))
-
-  return resetFieldLengthMap
+  return await APDUTransmit(reader, Command.WRITE_DATA(51, ('0').repeat(102)))
 }
 
-async function GetFieldLengthMap (reader, protocol) {
-  const accessMF = await MF(reader, protocol)
-  const accessDF = await DF(reader, protocol)
-  const accessFieldLengthMapEF = await AccessFieldLengthMapEF(reader, protocol)
+async function GetFieldLengthMap (reader) {
+  await MF(reader)
+  await DF(reader)
+  await AccessFieldLengthMapEF(reader)
 
   // Access Field + Length Map Data
-  // const dataLengthHEX = accessFieldLengthMapEF.substring(accessFieldLengthMapEF.length - 2)
-  // const dataLength = parseInt(dataLengthHEX, 16)
-  const accessFieldLengthMapData = await APDUTransmit(reader, protocol, Command.READ_DATA(51))
-  console.log('FieldLengthMap: ', accessFieldLengthMapData)
+  const accessFieldLengthMapData = await APDUTransmit(reader, Command.READ_DATA(51))
   const response = accessFieldLengthMapData[0]
 
   // data existence: byte 1 - 3
@@ -84,19 +77,15 @@ async function GetFieldLengthMap (reader, protocol) {
 }
 
 /**
- * @param {any} reader 
- * @param {any} protocol 
+ * @param {any} reader
  * @param {{[dataKey: string]: string}} newDataKeyAndLength
  */
-async function SetFieldLengthMap(reader, protocol, newDataKeyAndLength) {
+async function SetFieldLengthMap(reader, newDataKeyAndLength) {
   // get current field length map value
-  const FieldLengthMapValue = await GetFieldLengthMap(reader, protocol)
+  const FieldLengthMapValue = await GetFieldLengthMap(reader)
 
   // modified field existence map
-  const patchFieldLengthMap = {}
-  Object.keys(newDataKeyAndLength).forEach(d => {
-    patchFieldLengthMap[d] = { isExist: true, length: `${('0').repeat(4 - newDataKeyAndLength[d].length)}${newDataKeyAndLength[d].toUpperCase()}` }
-  })
+  const patchFieldLengthMap = Object.keys(newDataKeyAndLength).reduce((acc, d) => ({ ...acc, [d]: { isExist: true, length: `${('0').repeat(4 - newDataKeyAndLength[d].length)}${newDataKeyAndLength[d].toUpperCase()}` } }), {})
   const newFieldLengthMap = { ...FieldLengthMapValue, ...patchFieldLengthMap }
 
   const newFieldMapBinary = Object.keys(newFieldLengthMap).reduce((acc, f) => (newFieldLengthMap[f].isExist) ? `${acc}1` : `${acc}0`, '')
@@ -106,18 +95,13 @@ async function SetFieldLengthMap(reader, protocol, newDataKeyAndLength) {
   const newLengthMapHEX = Object.keys(newFieldLengthMap).reduce((acc, f) => `${acc}${newFieldLengthMap[f].length.toUpperCase()}`, '')
 
   // write new field length map value to card
-  const newFieldLengthMapValue = `${newFieldMapHEX}${newLengthMapHEX}`
-  console.log('newFieldMapBinary: ', newFieldMapBinary)
-  console.log('newFieldMapHEX :', newFieldMapHEX)
-  console.log('newFieldMapHEX.length: ', newFieldMapHEX.length)
-  const newFieldLengthMapValueLengthHEX = `${('0').repeat(2 - newFieldLengthMapValue.length.toString(16).length)}${newFieldLengthMapValue.length.toString(16)}`
+  const newFieldLengthMapHEX = `${newFieldMapHEX}${newLengthMapHEX}`
+  console.log('newFieldLengthMapHEX: ', newFieldLengthMapHEX)
 
-  const accessMF = await MF(reader, protocol)
-  const accessDF = await DF(reader, protocol)
-  const accessFieldLengthMapEF = await AccessFieldLengthMapEF(reader, protocol)
-  const writeFieldLengthMap = await APDUTransmit(reader, protocol, Command.WRITE_DATA(51, newFieldLengthMapValue))
+  // write to card
+  await APDUTransmit(reader, Command.WRITE_DATA(51, newFieldLengthMapHEX))
 
-  return writeFieldLengthMap
+  return newFieldLengthMap
 }
 
 module.exports = {

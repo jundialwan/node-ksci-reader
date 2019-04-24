@@ -1,16 +1,15 @@
-// @ts-check
 const Command = require('../Command')
 const FieldLengthMap = require('./FieldLengthMap')
 const DataStructure = require('../DataStructure')
 const APDUTransmit = require('../APDUTransmit')
 
-const AccessBiodataEF = async (reader, protocol) => await APDUTransmit(reader, protocol, [Command.DIR.EF.BIODATA])
+const AccessBiodataEF = async (reader) => await APDUTransmit(reader, [Command.DIR.EF.BIODATA])
 
-async function GetBiodata(reader, protocol) {
-  const SCDataExistenceAndLength = await FieldLengthMap.GetFieldLengthMap(reader, protocol)
+async function GetBiodata(reader) {
+  const SCDataExistenceAndLength = await FieldLengthMap.GetFieldLengthMap(reader)
   console.log(SCDataExistenceAndLength)
 
-  await AccessBiodataEF(reader, protocol)
+  await AccessBiodataEF(reader)
 
   const biodataDataLength = DataStructure.BIODATA.reduce((acc, b) => SCDataExistenceAndLength[b].isExist ? acc + parseInt(SCDataExistenceAndLength[b].length, 16) : acc, 0)
   const biodataDataLengthHEX = `${('0').repeat(4 - biodataDataLength.toString(16).length)}${biodataDataLength.toString(16)}`
@@ -22,7 +21,7 @@ async function GetBiodata(reader, protocol) {
     biodataResult = DataStructure.BIODATA.reduce((acc, biodataKey) => ({ ...acc, [biodataKey]: null }), {})
   } else {
     const getFullData = async (dataLength, dataGroup, dataExistenceAndLengthMap, dataByte) => {
-      const responses = await APDUTransmit(reader, protocol, Command.READ_DATA(dataLength))
+      const responses = await APDUTransmit(reader, Command.READ_DATA(dataLength))
 
       let appendedResult = responses.reduce((acc, r) => `${acc}${r.substring(0, r.length - 4)}`, '')
       
@@ -39,7 +38,7 @@ async function GetBiodata(reader, protocol) {
     
           dataPointer += dataLength
         } else {
-          resultObject[dataKey] = null
+          resultObject[dataKey] = ''
         }
       })
       dataPointer = 0
@@ -53,7 +52,7 @@ async function GetBiodata(reader, protocol) {
   return biodataResult
 }
 
-async function SetBiodata(reader, protocol, data) {
+async function SetBiodata(reader, data) {
   // extract data
   const filteredNewData = {}
 
@@ -64,23 +63,22 @@ async function SetBiodata(reader, protocol, data) {
   })
 
   // merge with current data
-  const currentBiodata = await GetBiodata(reader, protocol)
+  const currentBiodata = await GetBiodata(reader)
   const mergedBiodata = { ...currentBiodata, ...filteredNewData }
 
   // parse data to HEX, calculate length
   const mergedBiodataLength = DataStructure.BIODATA.reduce((acc, b) => (mergedBiodata[b] !== null) ? acc + mergedBiodata[b].length : acc, 0)
-  const mergedBiodataLengthHEX = mergedBiodataLength.toString(16)
   const mergedBiodataString = DataStructure.BIODATA.reduce((acc, b) => (mergedBiodata[b] !== null) ? `${acc}${mergedBiodata[b]}` : acc, '')
   const mergedBiodataStringHEX = Buffer.from(mergedBiodataString, 'utf8').toString('hex')
 
   // input data to card
-  await AccessBiodataEF(reader, protocol)
+  await AccessBiodataEF(reader)
 
-  const writeBiodataData = await APDUTransmit(reader, protocol, Command.WRITE_DATA(mergedBiodataLengthHEX, mergedBiodataStringHEX))
+  const writeBiodataData = await APDUTransmit(reader, Command.WRITE_DATA(mergedBiodataLength, mergedBiodataStringHEX))
 
   // update field length map value
   const filteredNewDataForFieldLength = Object.keys(filteredNewData).reduce((acc, f) => ({ ...acc, [f]: filteredNewData[f].length.toString(16) }), {})
-  const setFiledLengthMap = await FieldLengthMap.SetFieldLengthMap(reader, protocol, filteredNewDataForFieldLength)
+  const setFiledLengthMap = await FieldLengthMap.SetFieldLengthMap(reader, filteredNewDataForFieldLength)
 
   return setFiledLengthMap
 }
